@@ -187,22 +187,39 @@ eval :: Env -> Expr -> Value
 eval env e = case evalE env e of 
   Left exn  -> exn
   Right val -> val
-
 --------------------------------------------------------------------------------
 evalE :: Env -> Expr -> Either Value Value
 --------------------------------------------------------------------------------
-evalE env (EInt i)       = error "TBD"
-evalE env (EBool b)      = error "TBD" 
-evalE env (EVar x)       = error "TBD"
-evalE env (EBin o e1 e2) = error "TBD" 
-evalE env (EIf c t e)    = error "TBD" 
-evalE env (ELet x e1 e2) = error "TBD" 
-evalE env (EApp e1 e2)   = error "TBD" 
-evalE env (ELam x e)     = error "TBD" 
-evalE env ENil           = error "TBD" 
+evalE env (EInt i)       = Right (VInt i)
+evalE env (EBool b)      = Right (VBool b) 
+evalE env (EVar x)       = Right (lookupId x env)
+evalE env (EBin o e1 e2) = do n1 <- evalE env e1
+                              n2 <- evalE env e2
+                              return (evalOp o n1 n2 )
+  
+evalE env (EIf c t e)    = if y == True then evalE env t else evalE env e
+                             where
+                               (VBool y) = eval env c 
 
-evalE env (EThr e)       = error "TBD" 
-evalE env (ETry e1 x e2) = error "TBD" 
+evalE env (ELet x e1 e2) = evalE ((x, eval env e1):env) e2 
+evalE env (EApp e1 e2)   = case evalE env e1 of
+                             Right (VClos frozenEnv x body) -> evalE env' body
+                               where
+                                 v = eval env e2
+                                 env' = ((x,v) : frozenEnv) ++ env
+                             Right (VPrim f) -> Right (f (eval env e2))
+                             _ -> throw (Error "Type Error")
+evalE env (ELam x e)     = Right (VClos env x e) 
+evalE env ENil           = Right VNil 
+
+evalE env (EThr e)       = Left (eval env e)
+                           
+evalE env (ETry e1 x e2) = case evalE env e1 of
+                           Left ex1 -> evalE ((x , ex1):env) e2
+                           Right ex1 -> Right ex1
+   
+        
+                              
 
 --------------------------------------------------------------------------------
 -- | Unit tests for `throw`
@@ -243,25 +260,44 @@ evalE env (ETry e1 x e2) = error "TBD"
 -- try (1 + (throw 2)) handle z => z + 10   ==> 12 
 -- try ((throw 1) + (throw 2)) handle z => z + 10   ==> 11 
 
--- >>> eval [] (ETry ex_1_2 "z" (EBin Plus (EVar "z") (EInt 10)))
+-- >>> eval [] (ETry ex_1_2 "z" (EBin Plus "z" (EInt 10))
 -- 3
--- >>> eval [] (ETry ex_t1_2 "z" (EBin Plus (EVar "z") (EInt 10)))
+-- >>> eval [] (ETry ex_t1_2 "z" (EBin Plus "z" (EInt 10))
 -- 11
--- >>> eval [] (ETry ex_1_t2 "z" (EBin Plus (EVar "z") (EInt 10)))
+-- >>> eval [] (ETry ex_1_t2 "z" (EBin Plus "z" (EInt 10))
 -- 12
--- >>> eval [] (ETry ex_t1_t2 "z" (EBin Plus (EVar "z") (EInt 10)))
+-- >>> eval [] (ETry ex_t1_t2 "z" (EBin Plus "z" (EInt 10))
 -- 11
--- >>> eval [] (ETry ex_t12 "z" (EBin Plus (EVar "z") (EInt 10)))
+-- >>> eval [] (ETry ex_t12 "z" (EBin Plus "z" (EInt 10))
 -- 13
--- >>> eval [] (ETry ex_tt12 "z" (EBin Plus (EVar "z") (EInt 10)))
+-- >>> eval [] (ETry ex_tt12 "z" (EBin Plus "z" (EInt 10))
 -- 12
 
 --------------------------------------------------------------------------------
 evalOp :: Binop -> Value -> Value -> Value
 --------------------------------------------------------------------------------
-evalOp = error "TBD:evalOp"
+evalOp Plus (VInt x) (VInt y) = (VInt (x + y))
+evalOp Minus (VInt x) (VInt y) = (VInt (x - y))
+evalOp Mul (VInt x) (VInt y) = (VInt (x * y))
+evalOp Div (VInt x) (VInt y) = (VInt (x `div` y))
+evalOp Eq (VInt x) (VInt y) = (VBool (x == y))
+evalOp Eq (VBool x) (VBool y) = (VBool (x == y))
+evalOp Eq VNil VNil   = (VBool True)
+evalOp Eq (VPair a b) (VPair c d) = if p == True then evalOp Eq b d else (VBool False)
+        where
+        (VBool p) = evalOp Eq a c
 
---------------------------------------------------------------------------------
+evalOp Ne (VInt x) (VInt y) = (VBool (x /= y))
+evalOp Ne (VBool x) (VBool y) = (VBool (x /= y))
+evalOp Lt (VInt x) (VInt y) = (VBool (x < y))
+evalOp Le (VInt x) (VInt y) = (VBool (x <= y))
+evalOp And (VBool x) (VBool y) = (VBool (x && y))
+evalOp Or (VBool x) (VBool y) = (VBool (x || y))
+evalOp Cons x y = VPair x y
+
+evalOp Eq _ _         = (VBool False)
+evalOp _ _ _  = throw (Error "type errorz")
+-------------------------------------------------------------------------------"
 -- | `lookupId x env` returns the most recent
 --   binding for the variable `x` (i.e. the first
 --   from the left) in the list representing the
@@ -278,12 +314,14 @@ evalOp = error "TBD:evalOp"
 --------------------------------------------------------------------------------
 lookupId :: Id -> Env -> Value
 --------------------------------------------------------------------------------
-lookupId = error "TBD:lookupId"
+lookupId x env = case lookup x env of
+                      Nothing -> throw (Error ("unbound variable: " ++ x))
+                      Just val -> val
 
 prelude :: Env
 prelude =
-  [ -- HINT: you may extend this "built-in" environment
-    -- with some "operators" that you find useful...
+  [
+   ("tail", VPrim(\(VPair _ y) -> y)), ("head", VPrim(\(VPair x _) -> x)) 
   ]
 
 env0 :: Env
